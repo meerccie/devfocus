@@ -1,5 +1,11 @@
-import { Controller, Get, Param, Inject, HttpException, HttpStatus } from '@nestjs/common';
-// Change this line to use 'type' for the interface
+import {
+  Controller,
+  Get,
+  Param,
+  Inject,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { GITHUB_REPO_PORT } from '../../application/ports/github-repository.port';
 import type { IGithubRepository } from '../../application/ports/github-repository.port';
 
@@ -13,11 +19,14 @@ export class GithubController {
   async getProfile(@Param('username') username: string) {
     try {
       return await this.githubRepo.getUser(username);
-    } catch (error) {
-      if (error.message.includes('not found')) {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes('not found')) {
         throw new HttpException(error.message, HttpStatus.NOT_FOUND);
       }
-      throw new HttpException('Internal server error', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -25,11 +34,14 @@ export class GithubController {
   async getRepos(@Param('username') username: string) {
     try {
       return await this.githubRepo.getUserRepos(username);
-    } catch (error) {
-      if (error.message.includes('not found')) {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.includes('not found')) {
         throw new HttpException(error.message, HttpStatus.NOT_FOUND);
       }
-      throw new HttpException('Internal server error', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
