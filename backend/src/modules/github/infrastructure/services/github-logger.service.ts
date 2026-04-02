@@ -22,4 +22,14 @@ export class GithubLogger {
       }
     }
   }
+
+  logCacheHit(username: string): void {
+    this.logger.log(`Cache HIT for user: ${username}`);
+  }
+
+  logCacheMiss(username: string): void {
+    this.logger.log(
+      `Cache MISS for user: ${username} - Fetching from GitHub API`,
+    );
+  }
 }

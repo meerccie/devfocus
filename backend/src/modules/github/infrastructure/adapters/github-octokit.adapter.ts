@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Octokit } from 'octokit';
 import { GithubLogger } from '../services/github-logger.service';
+import { CacheService } from '../services/cache.service';
 import { GithubUserMapper } from '../mappers/github-user.mapper';
 import type { GithubGraphqlUser } from '../types/github-graphql-user.interface';
 import type { IGithubRepository } from '../../application/ports/github-repository.port';
@@ -38,7 +39,10 @@ interface OctokitConstructor {
 export class GithubOctokitAdapter implements IGithubRepository {
   private readonly octokit: OctokitInstance;
 
-  constructor(private readonly githubLogger: GithubLogger) {
+  constructor(
+    private readonly githubLogger: GithubLogger,
+    private readonly cacheService: CacheService,
+  ) {
     /**
      * 4. Cast the CLASS, not the instance.
      * We use 'unknown' as a safe bridge to re-map the unresolved Octokit class
@@ -52,6 +56,14 @@ export class GithubOctokitAdapter implements IGithubRepository {
   }
 
   async getUser(username: string): Promise<GithubUser> {
+    const cacheKey = this.cacheService.generateKey('github-user', username);
+    const cachedUser = await this.cacheService.get<GithubUser>(cacheKey);
+
+    if (cachedUser) {
+      this.githubLogger.logCacheHit(username);
+      return cachedUser;
+    }
+
     const query = `
       query getStats($login: String!) {
         user(login: $login) {
@@ -89,6 +101,12 @@ export class GithubOctokitAdapter implements IGithubRepository {
       username,
     );
 
-    return GithubUserMapper.fromGraphqlToDomain(response.data.data);
+    const user = GithubUserMapper.fromGraphqlToDomain(response.data.data);
+
+    // Cache the result with type safety
+    await this.cacheService.set(cacheKey, user, 300);
+    this.githubLogger.logCacheMiss(username);
+
+    return user;
   }
 }
