@@ -1,0 +1,23 @@
+📦src
+ ┣ 📂modules
+ ┃ ┗ 📂github
+ ┃ ┃ ┣ 📂application
+ ┃ ┃ ┃ ┗ 📂ports
+ ┃ ┃ ┃ ┃ ┗ 📜github-repository.port.ts
+ ┃ ┃ ┣ 📂domain
+ ┃ ┃ ┃ ┗ 📂models
+ ┃ ┃ ┃ ┃ ┗ 📜github-user.entity.ts
+ ┃ ┃ ┣ 📂infrastructure
+ ┃ ┃ ┃ ┣ 📂adapters
+ ┃ ┃ ┃ ┃ ┗ 📜github-octokit.adapter.ts
+ ┃ ┃ ┃ ┣ 📂controllers
+ ┃ ┃ ┃ ┃ ┗ 📜github.controller.ts
+ ┃ ┃ ┃ ┣ 📂mappers
+ ┃ ┃ ┃ ┃ ┗ 📜github-user.mapper.ts
+ ┃ ┃ ┃ ┣ 📂services
+ ┃ ┃ ┃ ┃ ┗ 📜github-logger.service.ts
+ ┃ ┃ ┃ ┗ 📂types
+ ┃ ┃ ┃ ┃ ┗ 📜github-graphql-user.interface.ts
+ ┃ ┃ ┗ 📜github.module.ts
+ ┣ 📜app.module.ts
+ ┗ 📜main.ts
