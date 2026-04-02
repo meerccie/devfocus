@@ -17,5 +17,6 @@ export interface GithubGraphqlUser {
         } | null;
       }>;
     };
-  };
+  } | null;
+  errors?: Array<{ message: string }>;
 }

@@ -2,29 +2,22 @@ import { Injectable } from '@nestjs/common';
 import { Octokit } from 'octokit';
 import { GithubLogger } from '../services/github-logger.service';
 import { CacheService } from '../services/cache.service';
+import { SecurityScannerService } from '../services/security-scanner.service';
 import { GithubUserMapper } from '../mappers/github-user.mapper';
 import type { GithubGraphqlUser } from '../types/github-graphql-user.interface';
 import type { IGithubRepository } from '../../application/ports/github-repository.port';
 import { GithubUser } from '../../domain/models/github-user.entity';
-
-/**
- * 1. Define the Response shape strictly.
- */
-interface OctokitGraphqlResponse {
-  data: {
-    data: GithubGraphqlUser;
-  };
-  headers: Record<string, string | undefined>;
-}
+import { GithubRepo } from '../../domain/models/github-repo.entity';
+import { SecurityIssue } from '../../domain/models/security-issue.entity';
 
 /**
  * 2. Define the Instance shape (what this.octokit can do).
  */
 interface OctokitInstance {
-  request(
+  request<T = unknown>(
     route: string,
-    options: { query: string; variables: Record<string, unknown> },
-  ): Promise<OctokitGraphqlResponse>;
+    options?: Record<string, unknown>,
+  ): Promise<T>;
 }
 
 /**
@@ -38,10 +31,12 @@ interface OctokitConstructor {
 @Injectable()
 export class GithubOctokitAdapter implements IGithubRepository {
   private readonly octokit: OctokitInstance;
+  private readonly CACHE_TTL = 300;
 
   constructor(
     private readonly githubLogger: GithubLogger,
     private readonly cacheService: CacheService,
+    private readonly securityScanner: SecurityScannerService,
   ) {
     /**
      * 4. Cast the CLASS, not the instance.
@@ -90,23 +85,143 @@ export class GithubOctokitAdapter implements IGithubRepository {
       }
     `;
 
-    // 5. Strictly typed call - no 'any' required
-    const response = await this.octokit.request('POST /graphql', {
+    // 5. Strictly typed call with GitHub GraphQL response
+    const response = await this.octokit.request<{
+      headers: Record<string, string | undefined>;
+      data: GithubGraphqlUser;
+    }>('POST /graphql', {
       query,
       variables: { login: username },
     });
 
+    const userExists = !!response.data.user;
     this.githubLogger.logRateLimit(
-      response.headers as Record<string, string>,
+      response.headers,
       username,
+      userExists ? 'found' : 'notfound',
     );
 
-    const user = GithubUserMapper.fromGraphqlToDomain(response.data.data);
+    if (!response.data.user) {
+      throw new Error(`User ${username} not found`);
+    }
+
+    const user = GithubUserMapper.fromGraphqlToDomain(response.data);
 
     // Cache the result with type safety
-    await this.cacheService.set(cacheKey, user, 300);
+    await this.cacheService.set(cacheKey, user, this.CACHE_TTL);
     this.githubLogger.logCacheMiss(username);
-
     return user;
+  }
+
+  async getUserRepos(username: string): Promise<GithubRepo[]> {
+    const cacheKey = this.cacheService.generateKey(
+      'github-user-repos',
+      username,
+    );
+    const cachedRepos = await this.cacheService.get<GithubRepo[]>(cacheKey);
+    if (cachedRepos) {
+      this.githubLogger.logCacheHit(username);
+      return cachedRepos;
+    }
+
+    const repoData = await this.octokit.request<
+      Array<{
+        name: string;
+        full_name: string;
+        private: boolean;
+        description: string | null;
+        language: string | null;
+        stargazers_count: number;
+        forks_count: number;
+      }>
+    >('GET /users/{username}/repos', {
+      username,
+      type: 'public',
+      per_page: 100,
+    });
+
+    const repos = repoData.map(
+      (repo) =>
+        new GithubRepo(
+          repo.name,
+          repo.full_name,
+          repo.private,
+          repo.description,
+          repo.language,
+          repo.stargazers_count,
+          repo.forks_count,
+        ),
+    );
+
+    await this.cacheService.set(cacheKey, repos, this.CACHE_TTL);
+    this.githubLogger.logCacheMiss(username);
+    return repos;
+  }
+
+  private async getRepoDefaultBranch(
+    owner: string,
+    repo: string,
+  ): Promise<string> {
+    const repoInfo = await this.octokit.request<{ default_branch: string }>(
+      'GET /repos/{owner}/{repo}',
+      {
+        owner,
+        repo,
+      },
+    );
+    return repoInfo.default_branch;
+  }
+
+  private async getBranchTreeSha(
+    owner: string,
+    repo: string,
+    branch: string,
+  ): Promise<string> {
+    const branchInfo = await this.octokit.request<{
+      commit: { commit: { tree: { sha: string } } };
+    }>('GET /repos/{owner}/{repo}/branches/{branch}', {
+      owner,
+      repo,
+      branch,
+    });
+    return branchInfo.commit.commit.tree.sha;
+  }
+
+  private async getTree(
+    owner: string,
+    repo: string,
+    treeSha: string,
+  ): Promise<Array<{ path: string; type: string }>> {
+    const treeResponse = await this.octokit.request<{
+      tree: Array<{ path: string; type: string }>;
+    }>('GET /repos/{owner}/{repo}/git/trees/{tree_sha}', {
+      owner,
+      repo,
+      tree_sha: treeSha,
+      recursive: '1',
+    });
+    return treeResponse.tree;
+  }
+
+  async scanRepository(owner: string, repo: string): Promise<SecurityIssue[]> {
+    const cacheKey = this.cacheService.generateKey(
+      'github-repo-scan',
+      `${owner}/${repo}`,
+    );
+    const cachedIssues = await this.cacheService.get<SecurityIssue[]>(cacheKey);
+    if (cachedIssues) {
+      this.githubLogger.logCacheHit(`${owner}/${repo}`);
+      return cachedIssues;
+    }
+
+    const defaultBranch = await this.getRepoDefaultBranch(owner, repo);
+    const treeSha = await this.getBranchTreeSha(owner, repo, defaultBranch);
+    const tree = await this.getTree(owner, repo, treeSha);
+
+    const issues = this.securityScanner.scanTree(tree);
+
+    await this.cacheService.set(cacheKey, issues, this.CACHE_TTL);
+    this.githubLogger.logCacheMiss(`${owner}/${repo}`);
+    return issues;
   }
 }

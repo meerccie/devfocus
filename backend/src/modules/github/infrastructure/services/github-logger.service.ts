@@ -7,13 +7,22 @@ export class GithubLogger {
   logRateLimit(
     headers: Record<string, string | undefined>,
     username: string,
+    status: 'found' | 'notfound' | 'error' = 'found',
   ): void {
     const remaining = headers['x-ratelimit-remaining'];
     const limit = headers['x-ratelimit-limit'];
     const reset = headers['x-ratelimit-reset'];
 
     if (remaining && limit) {
-      this.logger.log(`Quota: ${remaining}/${limit} | Target: ${username}`);
+      let statusTag = 'OK';
+      if (status === 'notfound') {
+        statusTag = 'NOT FOUND';
+      } else if (status === 'error') {
+        statusTag = 'ERROR';
+      }
+      this.logger.log(
+        `Quota: ${remaining}/${limit} | Target: ${username} | Status: ${statusTag}`,
+      );
 
       // Warning if you're running low (less than 10%)
       if (Number(remaining) < Number(limit) * 0.1) {
