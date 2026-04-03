@@ -82,6 +82,15 @@ devfocus
 │  ├─ tsconfig.build.json
 │  └─ tsconfig.json
 └─ frontend
+src/
+├── assets/             # Global styles and static files
+├── components/         # Atomic Vue components
+│   ├── base/           # Reusable UI (Buttons, Inputs)
+│   └── github/         # Feature-specific (RepoCards, Profile)
+├── services/           # API Logic (Axios/Fetch wrappers)
+├── types/              # TypeScript Interfaces & Entities
+├── App.vue             # Main Orchestrator
+└── main.ts             # Entry point
 
 ```
 # DevFocus Monorepo
