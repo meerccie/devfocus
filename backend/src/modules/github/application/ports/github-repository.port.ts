@@ -5,7 +5,10 @@ import { SecurityIssue } from '../../domain/models/security-issue.entity';
 export interface IGithubRepository {
   getUser(username: string): Promise<GithubUser>;
   getUserRepos(username: string): Promise<GithubRepo[]>;
-  scanRepository(owner: string, repo: string): Promise<SecurityIssue[]>;
+  scanRepository(
+    owner: string,
+    repo: string,
+  ): Promise<{ issues: SecurityIssue[]; sensitiveFiles: string[] }>; // ← updated
 }
 
 export const GITHUB_REPO_PORT = Symbol('IGithubRepository');

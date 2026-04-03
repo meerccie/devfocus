@@ -3,59 +3,77 @@ import { SecurityIssue } from '../../domain/models/security-issue.entity';
 
 @Injectable()
 export class SecurityScannerService {
-  // Rules for forbidden filenames (detects even if file is empty)
   private readonly FILENAME_RULES = [
     {
-      pattern: /\.env(\..+)?$/i,
+      pattern: /(^|\/)\.env(\..+)?$/i,
       name: 'Environment File',
       severity: 'CRITICAL',
-      fix: 'Move secrets to a Vault and add to .gitignore.',
+      remediation: 'Move secrets to a Vault and add to .gitignore.',
     },
     {
-      pattern: /\.(pem|key|pub)$/i,
-      name: 'Cryptographic Key',
+      pattern: /\.(pem|key|pub|p12|pfx|crt)$/i,
+      name: 'Cryptographic Asset',
       severity: 'CRITICAL',
-      fix: 'Remove private keys from version control immediately.',
+      remediation: 'Remove private keys or certificates from version control.',
     },
     {
-      pattern: /\.(sql|sqlite|db)$/i,
-      name: 'Database File',
+      pattern: /(^|\/)(aws_config|credentials|terraform\.tfstate|kubeconfig)$/i,
+      name: 'Cloud Infrastructure Secret',
+      severity: 'CRITICAL',
+      remediation:
+        'Revoke these credentials in your Cloud Console immediately.',
+    },
+    {
+      pattern: /\.(sql|sqlite|db|dump|bak)$/i,
+      name: 'Database/Backup File',
       severity: 'HIGH',
-      fix: 'Remove raw database files; use migrations instead.',
+      remediation:
+        'Remove raw data files. Use migrations or secure cloud storage.',
     },
     {
-      pattern: /(docker-compose\.yml|dockerfile)$/i,
-      name: 'Docker Config',
+      pattern:
+        /(^|\/)(\.kube\/config|config\.json|docker-compose\.yml|dockerfile)$/i,
+      name: 'Orchestration Config',
       severity: 'MEDIUM',
-      fix: 'Ensure no hardcoded credentials exist in env vars.',
+      remediation:
+        'Ensure no hardcoded passwords or tokens exist in these manifests.',
     },
   ];
 
-  // Rules for secrets found INSIDE the code
   private readonly CONTENT_RULES = [
     {
       name: 'Slack Token',
       regex: /xox[baprs]-[0-9a-zA-Z]{10,48}/g,
       severity: 'CRITICAL',
-      fix: 'Revoke token in Slack dashboard.',
+      remediation: 'Revoke token in Slack dashboard.',
     },
     {
       name: 'AWS Key',
       regex: /(?:AKIA|ASIA)[0-9A-Z]{16}/g,
       severity: 'CRITICAL',
-      fix: 'Deactivate key in AWS IAM and rotate.',
+      remediation: 'Deactivate key in AWS IAM and rotate.',
+    },
+    {
+      name: 'GitHub PAT',
+      regex: /ghp_[a-zA-Z0-9]{36}/g,
+      severity: 'CRITICAL',
+      remediation: 'Revoke the Personal Access Token in GitHub Settings.',
     },
     {
       name: 'Private Key Header',
-      regex: /-----BEGIN RSA PRIVATE KEY-----/g,
+      regex: /-----BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY-----/g,
+      severity: 'CRITICAL',
+      remediation: 'Delete file and rotate SSH/SSL keys.',
+    },
+    {
+      name: 'Generic Secret',
+      regex:
+        /(key|secret|password|token|auth|api_key|client_secret)\s*[:=]\s*["'][0-9a-zA-Z\-_]{16,}["']/gi,
       severity: 'HIGH',
-      fix: 'Delete file and rotate SSH/SSL keys.',
+      remediation: 'Move hardcoded secrets to environment variables.',
     },
   ];
 
-  /**
-   * Scans a file path string for forbidden extensions
-   */
   scanPath(path: string): SecurityIssue[] {
     const issues: SecurityIssue[] = [];
     for (const rule of this.FILENAME_RULES) {
@@ -63,9 +81,9 @@ export class SecurityScannerService {
         issues.push(
           new SecurityIssue(
             path,
-            `Forbidden file: ${rule.name}`,
+            `Forbidden file detected: ${rule.name}`,
             rule.severity as any,
-            rule.fix,
+            rule.remediation,
           ),
         );
       }
@@ -73,43 +91,40 @@ export class SecurityScannerService {
     return issues;
   }
 
-  /**
-   * Scans file content using Regex and Shannon Entropy
-   */
   scanContent(path: string, content: string): SecurityIssue[] {
     const issues: SecurityIssue[] = [];
+    if (!content || content.trim().length === 0) return issues;
 
-    // 1. Run Regex Rules
     for (const rule of this.CONTENT_RULES) {
-      rule.regex.lastIndex = 0; // CRITICAL: Reset regex state for global flags
+      rule.regex.lastIndex = 0;
       if (rule.regex.test(content)) {
         issues.push(
           new SecurityIssue(
             path,
-            `Found ${rule.name}`,
+            `Potential Leak: ${rule.name}`,
             rule.severity as any,
-            rule.fix,
+            rule.remediation,
           ),
         );
       }
     }
 
-    // 2. Run Entropy Check (Detects random strings/API Keys)
-    const tokens = content.split(/[\s'":=]+/);
+    const tokens = content.split(/[\s'":=,;]+/);
     for (const token of tokens) {
-      if (token.length > 25 && this.calculateEntropy(token) > 4.5) {
-        issues.push(
-          new SecurityIssue(
-            path,
-            'Detected high-entropy string',
-            'HIGH',
-            'Verify if this is a raw secret or API key.',
-          ),
-        );
-        break; // Only report one entropy issue per file to reduce noise
+      if (token.length > 32 && token.length < 512) {
+        if (this.calculateEntropy(token) > 4.5) {
+          issues.push(
+            new SecurityIssue(
+              path,
+              'High-entropy string detected',
+              'HIGH',
+              'Review this string; it has a high probability of being an API key.',
+            ),
+          );
+          break;
+        }
       }
     }
-
     return issues;
   }
 

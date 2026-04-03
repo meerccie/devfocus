@@ -4,6 +4,7 @@ import {
   Param,
   Inject,
   NotFoundException,
+  Header,
 } from '@nestjs/common';
 import type { IGithubRepository } from '../../application/ports/github-repository.port';
 import { GITHUB_REPO_PORT } from '../../application/ports/github-repository.port';
@@ -27,6 +28,7 @@ export class GithubController {
   }
 
   @Get(':username/scan/:repo')
+  @Header('Cache-Control', 'no-store') // ← prevents browser from caching scan results
   async scanRepo(
     @Param('username') username: string,
     @Param('repo') repo: string,
@@ -39,12 +41,12 @@ export class GithubController {
         `Repository ${repo} not found for user ${username}`,
       );
 
-    const scanResults = await this.githubRepo.scanRepository(username, repo);
-    const riskReport = this.severityScorer.calculateRisk(
-      targetRepo,
-      scanResults,
+    const { issues, sensitiveFiles } = await this.githubRepo.scanRepository(
+      username,
+      repo,
     );
+    const riskReport = this.severityScorer.calculateRisk(targetRepo, issues);
 
-    return { repoName: repo, risk: riskReport, issues: scanResults };
+    return { repoName: repo, risk: riskReport, issues, sensitiveFiles };
   }
 }

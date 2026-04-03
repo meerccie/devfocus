@@ -34,15 +34,11 @@ export class GithubOctokitAdapter implements IGithubRepository {
         }
       }
     `;
-
     const res = await this.octokit.graphql<GithubGraphqlUser>(query, {
       login: username,
     });
-
-    if (!res?.user) {
+    if (!res?.user)
       throw new NotFoundException(`User '${username}' not found.`);
-    }
-
     return GithubUserMapper.fromGraphqlToDomain(res);
   }
 
@@ -52,7 +48,6 @@ export class GithubOctokitAdapter implements IGithubRepository {
       per_page: 100,
       sort: 'updated',
     });
-
     return data.map(
       (r) =>
         new GithubRepo(
@@ -67,53 +62,51 @@ export class GithubOctokitAdapter implements IGithubRepository {
     );
   }
 
-  async scanRepository(owner: string, repo: string): Promise<SecurityIssue[]> {
-    const tree = await this.fetchRepositoryTree(owner, repo);
-    const issues: SecurityIssue[] = [];
-
-    // entry is now correctly typed as TreeEntry
-    tree.forEach((entry: TreeEntry) => {
-      if (entry.type === 'blob') {
-        issues.push(...this.securityScanner.scanPath(entry.path));
-      }
-    });
-
-    const queue = this.getPriorityQueue(tree).slice(0, 40);
-
-    for (const file of queue) {
-      const content = await this.fetchFileContent(owner, repo, file.path);
-      if (content) {
-        issues.push(...this.securityScanner.scanContent(file.path, content));
-      }
-      // Circuit breaker for too many critical issues
-      if (issues.filter((i) => i.severity === 'CRITICAL').length > 5) break;
-    }
-
-    return issues;
-  }
-
-  private async fetchRepositoryTree(
+  async scanRepository(
     owner: string,
     repo: string,
-  ): Promise<TreeEntry[]> {
-    const res = await this.octokit.request(
-      'GET /repos/{owner}/{repo}/git/trees/{tree_sha}',
-      { owner, repo, tree_sha: 'HEAD', recursive: '1' },
+  ): Promise<{ issues: SecurityIssue[]; sensitiveFiles: string[] }> {
+    const tree = await this.fetchRepositoryTree(owner, repo);
+    const allIssues: SecurityIssue[] = [];
+    const sensitiveFilePaths = new Set<string>();
+
+    // PASS 1: Filenames (Catches .env even if empty)
+    for (const entry of tree) {
+      if (entry.type === 'blob') {
+        const found = this.securityScanner.scanPath(entry.path);
+        if (found.length > 0) {
+          sensitiveFilePaths.add(entry.path);
+          allIssues.push(...found);
+        }
+      }
+    }
+
+    // PASS 2: Content (Catches secrets inside files)
+    const queue = this.getPriorityQueue(tree).slice(0, 40);
+    for (const file of queue) {
+      const content = await this.fetchFileContent(owner, repo, file.path);
+      if (content !== null) {
+        const contentIssues = this.securityScanner.scanContent(
+          file.path,
+          content,
+        );
+        if (contentIssues.length > 0) {
+          sensitiveFilePaths.add(file.path);
+          allIssues.push(...contentIssues);
+        }
+      }
+    }
+
+    // Deduplicate issues by Path + Description
+    const issues = allIssues.filter(
+      (issue, index, self) =>
+        index ===
+        self.findIndex(
+          (t) => t.path === issue.path && t.description === issue.description,
+        ),
     );
 
-    // Explicitly cast the generic Octokit data to our TreeEntry interface
-    return res.data.tree as unknown as TreeEntry[];
-  }
-
-  private getPriorityQueue(tree: TreeEntry[]): TreeEntry[] {
-    const highRisk =
-      /(\.env|config|secret|key|cert|auth|vault|token|dockerfile|\.yml|\.yaml|\.conf|sql)/i;
-    const standard = /\.(ts|js|json|txt|sh|py|go|php|cs|rb)$/i;
-
-    const high = tree.filter((e) => e.type === 'blob' && highRisk.test(e.path));
-    const code = tree.filter((e) => e.type === 'blob' && standard.test(e.path));
-
-    return [...high, ...code];
+    return { issues, sensitiveFiles: [...sensitiveFilePaths] };
   }
 
   private async fetchFileContent(
@@ -122,17 +115,38 @@ export class GithubOctokitAdapter implements IGithubRepository {
     path: string,
   ): Promise<string | null> {
     try {
-      const response = (await this.octokit.request(
+      const response = await this.octokit.request(
         'GET /repos/{owner}/{repo}/contents/{path}',
         { owner, repo, path },
-      )) as { data: GithubContentResponse };
-
-      if (response.data.content) {
-        return Buffer.from(response.data.content, 'base64').toString('utf-8');
-      }
-      return null;
+      );
+      const data = response.data as GithubContentResponse;
+      return data.content
+        ? Buffer.from(data.content, 'base64').toString('utf-8')
+        : null;
     } catch {
       return null;
     }
+  }
+
+  private async fetchRepositoryTree(
+    owner: string,
+    repo: string,
+  ): Promise<TreeEntry[]> {
+    const res = await this.octokit.request(
+      'GET /repos/{owner}/{repo}/git/trees/{tree_sha}',
+      {
+        owner,
+        repo,
+        tree_sha: 'HEAD',
+        recursive: '1',
+      },
+    );
+    return (res.data.tree as unknown as TreeEntry[]) || [];
+  }
+
+  private getPriorityQueue(tree: TreeEntry[]): TreeEntry[] {
+    const highRisk =
+      /(\.env|config|secret|key|cert|auth|vault|token|dockerfile|\.yml|\.yaml|\.conf|sql)/i;
+    return tree.filter((e) => e.type === 'blob' && highRisk.test(e.path));
   }
 }
