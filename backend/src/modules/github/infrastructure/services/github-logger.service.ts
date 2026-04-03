@@ -27,7 +27,7 @@ export class GithubLogger {
       // Warning if you're running low (less than 10%)
       if (Number(remaining) < Number(limit) * 0.1) {
         const resetDate = new Date(Number(reset) * 1000).toLocaleTimeString();
-        this.logger.warn(`⚠️ Low Rate Limit! Resets at ${resetDate}`);
+        this.logger.warn(`Low Rate Limit! Resets at ${resetDate}`);
       }
     }
   }
