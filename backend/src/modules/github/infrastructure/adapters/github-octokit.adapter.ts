@@ -1,67 +1,52 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Octokit } from 'octokit';
-import { GithubLogger } from '../services/github-logger.service';
-import { CacheService } from '../services/cache.service';
-import { SecurityScannerService } from '../services/security-scanner.service';
-import { GithubUserMapper } from '../mappers/github-user.mapper';
-import type { GithubGraphqlUser } from '../types/github-graphql-user.interface';
-import type { IGithubRepository } from '../../application/ports/github-repository.port';
+import { IGithubRepository } from '../../application/ports/github-repository.port';
 import { GithubUser } from '../../domain/models/github-user.entity';
 import { GithubRepo } from '../../domain/models/github-repo.entity';
 import { SecurityIssue } from '../../domain/models/security-issue.entity';
+import { SecurityScannerService } from '../services/security-scanner.service';
 
-// Define the shape of the GraphQL response body
-interface GraphQLResponse {
-  data: GithubGraphqlUser;
+// 1. Define Internal Interfaces for Type Safety
+interface GithubGraphqlResponse {
+  user: {
+    id: string;
+    login: string;
+    name: string | null;
+    avatarUrl: string;
+    bio: string | null;
+    repositories: {
+      totalCount: number;
+      nodes: Array<{
+        defaultBranchRef: {
+          target: { history: { totalCount: number } };
+        } | null;
+      }>;
+    };
+  } | null;
+}
+
+interface GithubTreeEntry {
+  path: string;
+  type: string;
+  sha: string;
 }
 
 @Injectable()
 export class GithubOctokitAdapter implements IGithubRepository {
-  private readonly octokit: Octokit;
-  private readonly CACHE_TTL = 300;
+  private readonly octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
-  constructor(
-    private readonly githubLogger: GithubLogger,
-    private readonly cacheService: CacheService,
-    private readonly securityScanner: SecurityScannerService,
-  ) {
-    this.octokit = new Octokit({
-      auth: process.env.GITHUB_TOKEN,
-    });
-  }
+  constructor(private readonly securityScanner: SecurityScannerService) {}
 
   async getUser(username: string): Promise<GithubUser> {
-    const cleanUsername = username.trim();
-    const cacheKey = this.cacheService.generateKey(
-      'github-user',
-      cleanUsername,
-    );
-    const cachedUser = await this.cacheService.get<GithubUser>(cacheKey);
-
-    if (cachedUser) {
-      this.githubLogger.logCacheHit(cleanUsername);
-      return cachedUser;
-    }
-
     const query = `
       query getStats($login: String!) {
         user(login: $login) {
-          id
-          login
-          name
-          avatarUrl
-          bio
+          id login name avatarUrl bio
           repositories(first: 50, ownerAffiliations: OWNER) {
+            totalCount
             nodes {
-              name
               defaultBranchRef {
-                target {
-                  ... on Commit {
-                    history {
-                      totalCount
-                    }
-                  }
-                }
+                target { ... on Commit { history { totalCount } } }
               }
             }
           }
@@ -69,108 +54,87 @@ export class GithubOctokitAdapter implements IGithubRepository {
       }
     `;
 
-    // Correct way to type GraphQL: .request returns { data, headers, status... }
-    // The generic is 'POST /graphql', the response is manually casted for the body
-    const response = await this.octokit.request('POST /graphql', {
-      query,
-      variables: { login: cleanUsername },
-    });
+    const res = await this.octokit.graphql<{
+      user: GithubGraphqlResponse['user'];
+    }>(query, { login: username });
+    const u = res.user;
 
-    const payload = response.data as GraphQLResponse;
-    const graphqlData = payload.data;
-    const userExists = !!graphqlData.user;
+    if (!u) throw new NotFoundException('User not found');
 
-    this.githubLogger.logRateLimit(
-      response.headers as Record<string, string | undefined>,
-      cleanUsername,
-      userExists ? 'found' : 'notfound',
+    const commits = u.repositories.nodes.reduce(
+      (acc, n) => acc + (n?.defaultBranchRef?.target?.history?.totalCount || 0),
+      0,
     );
 
-    if (graphqlData.errors && graphqlData.errors.length > 0) {
-      throw new HttpException(
-        graphqlData.errors[0].message,
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    if (!graphqlData.user) {
-      throw new HttpException(
-        `User ${cleanUsername} not found`,
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    const user = GithubUserMapper.fromGraphqlToDomain(graphqlData);
-    await this.cacheService.set(cacheKey, user, this.CACHE_TTL);
-    return user;
+    return new GithubUser(
+      u.id,
+      u.login,
+      u.name,
+      u.avatarUrl,
+      u.bio,
+      u.repositories.totalCount,
+      commits,
+    );
   }
 
   async getUserRepos(username: string): Promise<GithubRepo[]> {
-    const cleanUsername = username.trim();
-    const cacheKey = this.cacheService.generateKey('repos', cleanUsername);
-    const cached = await this.cacheService.get<GithubRepo[]>(cacheKey);
-    if (cached) return cached;
-
-    // Use specific Octokit Response types for REST
-    const response = await this.octokit.request('GET /users/{username}/repos', {
-      username: cleanUsername,
-      type: 'owner',
+    const { data } = await this.octokit.request('GET /users/{username}/repos', {
+      username,
       per_page: 100,
     });
 
-    // Cast the data to the expected shape to satisfy ESLint
-    const repoData = response.data as Array<{
-      name: string;
-      full_name: string;
-      private: boolean;
-      description: string | null;
-      language: string | null;
-      stargazers_count: number;
-      forks_count: number;
-    }>;
-
-    const repos = repoData.map(
-      (repo) =>
+    return data.map(
+      (r) =>
         new GithubRepo(
-          repo.name,
-          repo.full_name,
-          repo.private,
-          repo.description,
-          repo.language,
-          repo.stargazers_count,
-          repo.forks_count,
+          r.name,
+          r.full_name,
+          r.private,
+          r.description ?? null,
+          r.language ?? null,
+          r.stargazers_count ?? 0,
+          r.forks_count ?? 0,
         ),
     );
-
-    await this.cacheService.set(cacheKey, repos, this.CACHE_TTL);
-    return repos;
   }
 
   async scanRepository(owner: string, repo: string): Promise<SecurityIssue[]> {
-    const repoResponse = await this.octokit.request(
-      'GET /repos/{owner}/{repo}',
-      {
-        owner,
-        repo,
-      },
-    );
-
-    const repoInfo = repoResponse.data as { default_branch: string };
-
-    const treeResponse = await this.octokit.request(
+    const res = await this.octokit.request(
       'GET /repos/{owner}/{repo}/git/trees/{tree_sha}',
       {
         owner,
         repo,
-        tree_sha: repoInfo.default_branch,
+        tree_sha: 'HEAD',
         recursive: '1',
       },
     );
 
-    const treeData = treeResponse.data as {
-      tree: Array<{ path: string; type: string }>;
-    };
+    const issues: SecurityIssue[] = [];
+    const tree = res.data.tree as GithubTreeEntry[];
 
-    return this.securityScanner.scanTree(treeData.tree);
+    const files = tree
+      .filter(
+        (f) =>
+          f.type === 'blob' && /\.(ts|js|json|env|yml|yaml|txt)$/i.test(f.path),
+      )
+      .slice(0, 30);
+
+    for (const file of files) {
+      try {
+        const { data } = (await this.octokit.request(
+          'GET /repos/{owner}/{repo}/contents/{path}',
+          {
+            owner,
+            repo,
+            path: file.path,
+          },
+        )) as { data: { content: string } };
+
+        const content = Buffer.from(data.content, 'base64').toString('utf-8');
+        issues.push(...this.securityScanner.scanContent(file.path, content));
+      } catch {
+        continue;
+      }
+    }
+    return issues;
   }
 }

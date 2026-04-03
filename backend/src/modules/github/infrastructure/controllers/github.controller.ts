@@ -1,55 +1,45 @@
-import {
-  Controller,
-  Get,
-  Param,
-  Inject,
-  HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Get, Param, Inject } from '@nestjs/common';
 import { GITHUB_REPO_PORT } from '../../application/ports/github-repository.port';
+// Use 'import type' for the interface to satisfy 'isolatedModules'
 import type { IGithubRepository } from '../../application/ports/github-repository.port';
+import { SeverityScorerService } from '../services/severity-scorer.service';
+import { SecurityIssue } from '../../domain/models/security-issue.entity';
 
 @Controller('github')
 export class GithubController {
   constructor(
-    @Inject(GITHUB_REPO_PORT) private readonly githubRepo: IGithubRepository,
+    @Inject(GITHUB_REPO_PORT)
+    private readonly githubRepo: IGithubRepository,
+    private readonly severityScorer: SeverityScorerService,
   ) {}
 
-  @Get('user/:username')
-  async getProfile(@Param('username') username: string) {
-    try {
-      return await this.githubRepo.getUser(username);
-    } catch (error: unknown) {
-      if (error instanceof Error && error.message.includes('not found')) {
-        throw new HttpException(error.message, HttpStatus.NOT_FOUND);
-      }
-      throw new HttpException(
-        'Internal server error',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
+  @Get(':username/audit')
+  async getProfileAudit(@Param('username') username: string) {
+    const [user, repos] = await Promise.all([
+      this.githubRepo.getUser(username),
+      this.githubRepo.getUserRepos(username),
+    ]);
 
-  @Get('user/:username/repos')
-  async getRepos(@Param('username') username: string) {
-    try {
-      return await this.githubRepo.getUserRepos(username);
-    } catch (error: unknown) {
-      if (error instanceof Error && error.message.includes('not found')) {
-        throw new HttpException(error.message, HttpStatus.NOT_FOUND);
-      }
-      throw new HttpException(
-        'Internal server error',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
+    const topRepo = [...repos].sort((a, b) => b.stars - a.stars)[0];
+    let scanResults: SecurityIssue[] = [];
+    let riskReport = { score: 0, level: 'LOW' };
 
-  @Get('user/:username/repos/:repo/security')
-  async scanRepo(
-    @Param('username') owner: string,
-    @Param('repo') repo: string,
-  ) {
-    return await this.githubRepo.scanRepository(owner, repo);
+    if (topRepo) {
+      scanResults = await this.githubRepo.scanRepository(
+        username,
+        topRepo.name,
+      );
+      riskReport = this.severityScorer.calculateRisk(topRepo, scanResults);
+    }
+
+    return {
+      userProfile: user,
+      totalRepos: repos.length,
+      deepScan: {
+        repoName: topRepo?.name,
+        risk: riskReport,
+        issues: scanResults,
+      },
+    };
   }
 }

@@ -8,5 +8,4 @@ export interface IGithubRepository {
   scanRepository(owner: string, repo: string): Promise<SecurityIssue[]>;
 }
 
-// Token for NestJS Dependency Injection
 export const GITHUB_REPO_PORT = Symbol('IGithubRepository');
