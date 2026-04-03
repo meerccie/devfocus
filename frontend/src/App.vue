@@ -24,21 +24,28 @@ const riskReport = ref<{ score: number; level: string } | null>(null);
 
 const loading = ref(false);
 const scanning = ref(false);
-const showModal = ref(false); // Controls the VulnerabilityReport Modal
+const showModal = ref(false);
 const selectedRepo = ref('');
 const error = ref('');
 
 /**
- * Fetches user profile and repository list
+ * Fetches user profile and repository list.
+ * Resets all assessment data to ensure a clean slate for the new target.
  */
 const onSearch = async () => {
   if (!usernameInput.value.trim()) return;
   
   loading.value = true;
   error.value = '';
+  
+  // --- Global Reset ---
   user.value = null;
   repos.value = [];
   showModal.value = false;
+  selectedRepo.value = ''; 
+  riskReport.value = null; 
+  issues.value = [];
+  sensitiveFiles.value = [];
 
   try {
     const data = await githubService.getProfile(usernameInput.value);
@@ -61,7 +68,7 @@ const handleRepoScan = async (repoName: string) => {
   scanning.value = true;
   error.value = '';
   
-  // Reset previous scan data
+  // Reset previous individual scan data
   issues.value = [];
   sensitiveFiles.value = [];
   riskReport.value = null;
@@ -69,12 +76,11 @@ const handleRepoScan = async (repoName: string) => {
   try {
     const data = await githubService.scanRepository(user.value.username, repoName);
 
-    // Populate reactive state with backend results
+    // Populate reactive state with results
     issues.value = data.issues;
     riskReport.value = data.risk;
     sensitiveFiles.value = data.sensitiveFiles || [];
 
-    // Small delay for UI smoothness before popping the modal
     await nextTick();
     scanning.value = false;
     showModal.value = true; 
@@ -100,8 +106,9 @@ const handleRepoScan = async (repoName: string) => {
         <aside class="lg:col-span-4 space-y-8">
           <ProfileCard :user="user" />
           
-          <Transition name="slide-up">
+          <Transition name="slide-up" mode="out-in">
             <ThreatAssessment 
+              :key="selectedRepo"
               :scanning="scanning" 
               :selected-repo="selectedRepo" 
               :risk-report="riskReport" 
@@ -118,8 +125,14 @@ const handleRepoScan = async (repoName: string) => {
         </main>
       </div>
 
-
-
+      <div v-else-if="!loading" class="py-48 text-center animate-in fade-in zoom-in duration-1000">
+        <div class="inline-block p-12 bg-slate-900/40 rounded-[3rem] border border-slate-800/50 backdrop-blur-xl">
+          <p class="text-8xl mb-8 drop-shadow-[0_0_25px_rgba(99,102,241,0.5)]">⚡</p>
+          <p class="text-2xl font-light text-slate-400 max-w-md mx-auto leading-relaxed">
+            Systems ready. Provide a <span class="text-white font-bold underline decoration-indigo-500 decoration-2">GitHub handle</span> to begin reconnaissance.
+          </p>
+        </div>
+      </div>
     </div>
 
     <VulnerabilityReport
@@ -146,9 +159,15 @@ const handleRepoScan = async (repoName: string) => {
 .slide-up-enter-active { transition: all 0.4s ease-out; }
 .slide-up-enter-from { transform: translateY(20px); opacity: 0; }
 
-/* Global scrollbar styling for a darker aesthetic */
+/* Global scrollbar styling */
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: #020617; }
 ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+/* Selection color */
+::selection {
+  background: rgba(99, 102, 241, 0.3);
+  color: white;
+}
 </style>
