@@ -124,15 +124,6 @@ const handleRepoScan = async (repoName: string) => {
           />
         </main>
       </div>
-
-      <div v-else-if="!loading" class="py-48 text-center animate-in fade-in zoom-in duration-1000">
-        <div class="inline-block p-12 bg-slate-900/40 rounded-[3rem] border border-slate-800/50 backdrop-blur-xl">
-          <p class="text-8xl mb-8 drop-shadow-[0_0_25px_rgba(99,102,241,0.5)]">⚡</p>
-          <p class="text-2xl font-light text-slate-400 max-w-md mx-auto leading-relaxed">
-            Systems ready. Provide a <span class="text-white font-bold underline decoration-indigo-500 decoration-2">GitHub handle</span> to begin reconnaissance.
-          </p>
-        </div>
-      </div>
     </div>
 
     <VulnerabilityReport
