@@ -1,17 +1,20 @@
 export const githubService = {
-  // Just gets the user and repo list
+  // Use the environment variable with a fallback
   async getProfile(username: string) {
-    const res = await fetch(`http://localhost:3000/github/${username}/profile`);
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const res = await fetch(`${baseUrl}/github/${username}/profile`);
+    
     if (!res.ok) throw new Error('User not found');
     return res.json();
   },
 
-  // Performs the security audit on a specific repo
   async scanRepository(username: string, repo: string) {
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
     const res = await fetch(
-      `http://localhost:3000/github/${username}/scan/${repo}`,
-      { headers: { 'Cache-Control': 'no-cache' } }, // ← forces a fresh request every time
+      `${baseUrl}/github/${username}/scan/${repo}`,
+      { headers: { 'Cache-Control': 'no-cache' } }
     );
+    
     if (!res.ok) throw new Error('Scan failed');
     return res.json();
   },
