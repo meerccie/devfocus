@@ -1,5 +1,5 @@
 import { GithubUser } from '../../domain/models/github-user.entity';
-import type { GithubGraphqlUser } from '../types/github-graphql-user.interface';
+import type { GithubGraphqlUser } from '../types/github-api.types';
 
 export class GithubUserMapper {
   /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */

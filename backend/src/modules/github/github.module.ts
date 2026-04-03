@@ -5,6 +5,8 @@ import { GithubController } from './infrastructure/controllers/github.controller
 import { GithubLogger } from './infrastructure/services/github-logger.service';
 import { CacheService } from './infrastructure/services/cache.service';
 import { SecurityScannerService } from './infrastructure/services/security-scanner.service';
+// 1. Import the service
+import { SeverityScorerService } from './infrastructure/services/severity-scorer.service';
 
 @Module({
   controllers: [GithubController],
@@ -12,6 +14,7 @@ import { SecurityScannerService } from './infrastructure/services/security-scann
     GithubLogger,
     CacheService,
     SecurityScannerService,
+    SeverityScorerService, // 2. Register it here
     {
       provide: GITHUB_REPO_PORT,
       useClass: GithubOctokitAdapter,

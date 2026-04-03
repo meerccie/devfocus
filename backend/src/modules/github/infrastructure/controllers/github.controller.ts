@@ -1,45 +1,50 @@
-import { Controller, Get, Param, Inject } from '@nestjs/common';
-import { GITHUB_REPO_PORT } from '../../application/ports/github-repository.port';
-// Use 'import type' for the interface to satisfy 'isolatedModules'
+import {
+  Controller,
+  Get,
+  Param,
+  Inject,
+  NotFoundException,
+} from '@nestjs/common';
 import type { IGithubRepository } from '../../application/ports/github-repository.port';
+import { GITHUB_REPO_PORT } from '../../application/ports/github-repository.port';
 import { SeverityScorerService } from '../services/severity-scorer.service';
-import { SecurityIssue } from '../../domain/models/security-issue.entity';
 
 @Controller('github')
 export class GithubController {
   constructor(
-    @Inject(GITHUB_REPO_PORT)
-    private readonly githubRepo: IGithubRepository,
+    @Inject(GITHUB_REPO_PORT) private readonly githubRepo: IGithubRepository,
     private readonly severityScorer: SeverityScorerService,
   ) {}
 
-  @Get(':username/audit')
-  async getProfileAudit(@Param('username') username: string) {
+  @Get(':username/profile')
+  async getProfile(@Param('username') username: string) {
     const [user, repos] = await Promise.all([
       this.githubRepo.getUser(username),
       this.githubRepo.getUserRepos(username),
     ]);
 
-    const topRepo = [...repos].sort((a, b) => b.stars - a.stars)[0];
-    let scanResults: SecurityIssue[] = [];
-    let riskReport = { score: 0, level: 'LOW' };
+    return { userProfile: user, repositories: repos };
+  }
 
-    if (topRepo) {
-      scanResults = await this.githubRepo.scanRepository(
-        username,
-        topRepo.name,
+  @Get(':username/scan/:repo')
+  async scanRepo(
+    @Param('username') username: string,
+    @Param('repo') repo: string,
+  ) {
+    const repos = await this.githubRepo.getUserRepos(username);
+    const targetRepo = repos.find((r) => r.name === repo);
+
+    if (!targetRepo)
+      throw new NotFoundException(
+        `Repository ${repo} not found for user ${username}`,
       );
-      riskReport = this.severityScorer.calculateRisk(topRepo, scanResults);
-    }
 
-    return {
-      userProfile: user,
-      totalRepos: repos.length,
-      deepScan: {
-        repoName: topRepo?.name,
-        risk: riskReport,
-        issues: scanResults,
-      },
-    };
+    const scanResults = await this.githubRepo.scanRepository(username, repo);
+    const riskReport = this.severityScorer.calculateRisk(
+      targetRepo,
+      scanResults,
+    );
+
+    return { repoName: repo, risk: riskReport, issues: scanResults };
   }
 }

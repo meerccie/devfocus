@@ -2,59 +2,64 @@
 import { ref } from 'vue';
 import { githubService } from './services/github.service';
 
-// Import the separated interfaces
+// Components
+import DashboardHeader from './components/base/DashboardHeader.vue';
+import ProfileCard from './components/github/ProfileCard.vue';
+import ThreatAssessment from './components/github/ThreatAssessment.vue';
+import RepositoryGrid from './components/github/RepositoryGrid.vue';
+import VulnerabilityReport from './components/github/VulnerabilityReport.vue';
+
+// Types
 import type { GithubUser } from './types/user';
 import type { GithubRepo } from './types/repository';
 import type { SecurityIssue } from './types/security';
 
-// Import reusable components
-import UserProfile from './components/github/UserProfile.vue';
-import RepoCard from './components/github/RepoCard.vue';
-import SecurityIssueItem from './components/github/SecurityIssueItem.vue';
-import BaseButton from './components/base/BaseButton.vue';
-
-// --- State with Explicit TypeScript Generics ---
-const username = ref('');
+// --- Typed State ---
+const usernameInput = ref('');
 const user = ref<GithubUser | null>(null);
 const repos = ref<GithubRepo[]>([]);
 const issues = ref<SecurityIssue[]>([]);
+const riskReport = ref<{ score: number; level: string } | null>(null);
 
 const loading = ref(false);
 const scanning = ref(false);
 const selectedRepo = ref('');
 const error = ref('');
 
-// --- Logic ---
 const onSearch = async () => {
-  if (!username.value.trim()) return;
-  
+  if (!usernameInput.value.trim()) return;
   loading.value = true;
   error.value = '';
+  user.value = null;
+  repos.value = [];
+  
   try {
-    user.value = await githubService.getUser(username.value);
-    repos.value = await githubService.getRepos(username.value);
-    issues.value = [];
-    selectedRepo.value = '';
+    const data = await githubService.getProfile(usernameInput.value);
+    user.value = data.userProfile;
+    repos.value = data.repositories;
   } catch (err) {
-    error.value = 'Failed to fetch user data. Please check the username.';
-    user.value = null;
-    repos.value = [];
+    error.value = "Target not found in global registry.";
   } finally {
     loading.value = false;
   }
 };
 
-const onScan = async (repoName: string) => {
+const handleRepoScan = async (repoName: string) => {
+  // Guard Clause: Fixes the 'possibly null' and 'never' errors
   if (!user.value) return;
 
   selectedRepo.value = repoName;
   scanning.value = true;
-  error.value = '';
-  
+  issues.value = [];
+  riskReport.value = null;
+
   try {
-    issues.value = await githubService.scanRepo(user.value.username, repoName);
+    // TypeScript now knows user.value is NOT null here
+    const data = await githubService.scanRepository(user.value.username, repoName);
+    riskReport.value = data.risk;
+    issues.value = data.issues;
   } catch (err) {
-    error.value = `Failed to scan ${repoName}`;
+    error.value = "Audit failed for " + repoName;
   } finally {
     scanning.value = false;
   }
@@ -62,94 +67,70 @@ const onScan = async (repoName: string) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-200 p-6 md:p-12 font-sans">
-    <div class="max-w-6xl mx-auto">
+  <div class="min-h-screen bg-slate-950 text-slate-200 p-6 md:p-10 font-sans selection:bg-indigo-500/30">
+    <div class="max-w-7xl mx-auto">
       
-      <header class="mb-12 flex flex-col md:flex-row gap-4 items-center">
-        <div class="flex-1 w-full">
-          <h1 class="text-3xl font-black text-white mb-2">DevFocus Audit</h1>
-          <p class="text-slate-500 text-sm">Full-stack security reconnaissance tool</p>
-        </div>
+      <DashboardHeader 
+        v-model="usernameInput" 
+        :loading="loading" 
+        @search="onSearch" 
+      />
+
+      <div v-if="user" class="grid grid-cols-1 lg:grid-cols-12 gap-10">
         
-        <div class="flex w-full md:w-auto gap-3 bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-xl">
-          <input 
-            v-model="username" 
-            placeholder="Enter GitHub Username" 
-            class="bg-transparent px-4 py-2 focus:outline-none flex-1 md:w-64"
-            @keyup.enter="onSearch"
+        <aside class="lg:col-span-4 space-y-8">
+          <ProfileCard :user="user" />
+          <ThreatAssessment 
+            :scanning="scanning" 
+            :selected-repo="selectedRepo" 
+            :risk-report="riskReport" 
           />
-          <BaseButton @click="onSearch" :loading="loading">
-            Analyze
-          </BaseButton>
-        </div>
-      </header>
-
-      <div v-if="error" class="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
-        {{ error }}
-      </div>
-
-      <div v-if="user" class="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        <aside class="lg:col-span-4 space-y-6">
-          <UserProfile :user="user" />
-
-          <div v-if="selectedRepo" class="bg-slate-900 border border-slate-800 rounded-3xl p-6">
-            <h3 class="text-white font-bold mb-4 flex items-center justify-between">
-              <span>Scan Results</span>
-              <span class="text-[10px] text-slate-500 font-mono">{{ selectedRepo }}</span>
-            </h3>
-            
-            <div v-if="scanning" class="py-8 text-center animate-pulse text-slate-500">
-              Analyzing repository structure...
-            </div>
-
-            <div v-else-if="issues.length > 0" class="space-y-1">
-              <SecurityIssueItem 
-                v-for="issue in issues" 
-                :key="issue.path" 
-                :issue="issue" 
-              />
-            </div>
-            
-            <div v-else class="py-8 text-center text-green-500">
-              <p class="text-2xl mb-2">🛡️</p>
-              <p class="text-sm font-bold">No leaks detected in top files.</p>
-            </div>
-          </div>
         </aside>
 
-        <main class="lg:col-span-8 space-y-4">
-          <h2 class="text-xl font-bold text-white px-2">Active Repositories</h2>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <RepoCard 
-              v-for="repo in repos" 
-              :key="repo.fullName" 
-              :repo="repo" 
-              :is-scanning="scanning && selectedRepo === repo.name"
-              @scan="onScan" 
-            />
-          </div>
+        <main class="lg:col-span-8 space-y-10">
+          <RepositoryGrid 
+            :repos="repos" 
+            :scanning-repo-name="scanning ? selectedRepo : ''" 
+            @select="handleRepoScan" 
+          />
+          <VulnerabilityReport 
+            :issues="issues" 
+            :scanning="scanning" 
+            :repo-name="selectedRepo" 
+          />
         </main>
 
       </div>
 
-      <div v-else-if="!loading" class="text-center py-24 opacity-30">
-        <p class="text-6xl mb-4">🔍</p>
-        <p class="text-xl font-medium">Search for a developer to begin the audit</p>
+      <div v-else class="py-48 text-center">
+        <div class="inline-block p-12 bg-slate-900/40 rounded-[3rem] border border-slate-800/50 backdrop-blur-xl">
+          <p class="text-8xl mb-8 drop-shadow-2xl">⚡</p>
+          <p class="text-2xl font-light text-slate-400 max-w-md mx-auto leading-relaxed">
+            Systems ready. Provide a <span class="text-white font-bold underline decoration-indigo-500 decoration-2">GitHub handle</span> to begin reconnaissance.
+          </p>
+        </div>
       </div>
 
     </div>
+
+    <Transition name="fade">
+      <div v-if="error" class="fixed bottom-8 right-8 bg-red-600 text-white px-6 py-3 rounded-2xl shadow-2xl font-bold flex items-center gap-3">
+        <span>⚠️</span> {{ error }}
+      </div>
+    </Transition>
   </div>
 </template>
 
 <style>
-/* FIX: In Tailwind v4, styles using @apply MUST reference 
-  the main CSS file so the compiler knows what 'bg-slate-950' is.
-*/
-@reference "./assets/main.css";
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 
-body {
-  @apply bg-slate-950;
-  margin: 0;
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); width: 25%; }
+  50% { width: 45%; }
+  100% { transform: translateX(400%); width: 25%; }
+}
+.animate-progress-indeterminate {
+  animation: progress-indeterminate 1.8s infinite linear;
 }
 </style>
