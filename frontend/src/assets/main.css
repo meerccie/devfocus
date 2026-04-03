@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@theme {
+  /* This ensures the slate and indigo palettes are indexed by the compiler */
+  --color-slate-950: #020617;
+  --color-indigo-500: #6366f1;
+}
+
+/* Base resets */
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-200;
+  }
+}

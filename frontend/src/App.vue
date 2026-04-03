@@ -1,189 +1,155 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref } from 'vue';
+import { githubService } from './services/github.service';
 
-interface GithubUser {
-  id: string
-  username: string
-  displayName: string | null
-  avatarUrl: string
-  bio: string | null
-  repoCount: number
-  totalCommits?: number
-}
+// Import the separated interfaces
+import type { GithubUser } from './types/user';
+import type { GithubRepo } from './types/repository';
+import type { SecurityIssue } from './types/security';
 
-interface GithubRepo {
-  name: string
-  fullName: string
-  isPrivate: boolean
-  description: string | null
-  language: string | null
-  stars: number
-  forks: number
-}
+// Import reusable components
+import UserProfile from './components/github/UserProfile.vue';
+import RepoCard from './components/github/RepoCard.vue';
+import SecurityIssueItem from './components/github/SecurityIssueItem.vue';
+import BaseButton from './components/base/BaseButton.vue';
 
-interface SecurityIssue {
-  path: string
-  reason: string
-}
+// --- State with Explicit TypeScript Generics ---
+const username = ref('');
+const user = ref<GithubUser | null>(null);
+const repos = ref<GithubRepo[]>([]);
+const issues = ref<SecurityIssue[]>([]);
 
-const username = ref('')
-const user = ref<GithubUser | null>(null)
-const loading = ref(false)
-const error = ref('')
-const repos = ref<GithubRepo[]>([])
-const repoLoading = ref(false)
-const selectedRepo = ref<string | null>(null)
-const issues = ref<SecurityIssue[]>([])
-const scanning = ref(false)
+const loading = ref(false);
+const scanning = ref(false);
+const selectedRepo = ref('');
+const error = ref('');
 
-const fetchUser = async () => {
-  if (!username.value.trim()) return
-  loading.value = true
-  error.value = ''
+// --- Logic ---
+const onSearch = async () => {
+  if (!username.value.trim()) return;
+  
+  loading.value = true;
+  error.value = '';
   try {
-    const response = await fetch(`http://localhost:3000/github/user/${username.value}`)
-    if (!response.ok) throw new Error('User not found')
-    user.value = await response.json()
+    user.value = await githubService.getUser(username.value);
+    repos.value = await githubService.getRepos(username.value);
+    issues.value = [];
+    selectedRepo.value = '';
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'An error occurred'
-    user.value = null
-    repos.value = []
+    error.value = 'Failed to fetch user data. Please check the username.';
+    user.value = null;
+    repos.value = [];
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
 
-const fetchRepos = async () => {
-  if (!user.value) return
-  repoLoading.value = true
-  error.value = ''
-  try {
-    const response = await fetch(`http://localhost:3000/github/user/${user.value.username}/repos`)
-    if (!response.ok) throw new Error('Repos not found')
-    repos.value = await response.json()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'An error occurred'
-    repos.value = []
-  } finally {
-    repoLoading.value = false
-  }
-}
+const onScan = async (repoName: string) => {
+  if (!user.value) return;
 
-const scanRepo = async (repoName: string) => {
-  selectedRepo.value = repoName
-  scanning.value = true
-  issues.value = []
-  error.value = ''
+  selectedRepo.value = repoName;
+  scanning.value = true;
+  error.value = '';
+  
   try {
-    const response = await fetch(`http://localhost:3000/github/user/${user.value?.username}/repos/${repoName}/security`)
-    if (!response.ok) throw new Error('Security scan failed')
-    issues.value = await response.json()
+    issues.value = await githubService.scanRepo(user.value.username, repoName);
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'An error occurred'
-    issues.value = []
+    error.value = `Failed to scan ${repoName}`;
   } finally {
-    scanning.value = false
+    scanning.value = false;
   }
-}
+};
 </script>
 
 <template>
-  <div class="app">
-    <h1>GitHub User Profile</h1>
-    <div class="search">
-      <input v-model="username" placeholder="Enter GitHub username" @keyup.enter="fetchUser" />
-      <button @click="fetchUser" :disabled="loading">Search</button>
-    </div>
-    <div v-if="loading" class="loading">Loading...</div>
-    <div v-if="error" class="error">{{ error }}</div>
-    <div v-if="user" class="profile">
-      <img :src="user.avatarUrl" :alt="user.username" class="avatar" />
-      <h2>{{ user.displayName || user.username }}</h2>
-      <p>@{{ user.username }}</p>
-      <p v-if="user.bio">{{ user.bio }}</p>
-      <p>Repositories: {{ user.repoCount }}</p>
-      <p v-if="user.totalCommits !== undefined">Total Commits: {{ user.totalCommits }}</p>
-      <button @click="fetchRepos" :disabled="repoLoading">Load Repos</button>
-
-      <div v-if="repoLoading" class="loading">Loading repositories...</div>
-
-      <ul v-if="repos.length" class="repo-list">
-        <li v-for="repo in repos" :key="repo.fullName">
-          <h4>{{ repo.name }}</h4>
-          <p>{{ repo.description || 'No description' }}</p>
-          <p>Language: {{ repo.language || 'N/A' }}</p>
-          <p>★{{ repo.stars }} | Forks: {{ repo.forks }}</p>
-          <button @click="scanRepo(repo.name)" :disabled="scanning">Scan for .env-like files</button>
-        </li>
-      </ul>
-
-      <div v-if="selectedRepo" class="issues">
-        <h4>Security scan for {{ selectedRepo }}</h4>
-        <div v-if="scanning" class="loading">Scanning...</div>
-        <div v-else>
-          <ul v-if="issues.length">
-            <li v-for="issue in issues" :key="issue.path"><strong>{{ issue.path }}</strong>: {{ issue.reason }}</li>
-          </ul>
-          <p v-else>No suspicious files found!</p>
+  <div class="min-h-screen bg-slate-950 text-slate-200 p-6 md:p-12 font-sans">
+    <div class="max-w-6xl mx-auto">
+      
+      <header class="mb-12 flex flex-col md:flex-row gap-4 items-center">
+        <div class="flex-1 w-full">
+          <h1 class="text-3xl font-black text-white mb-2">DevFocus Audit</h1>
+          <p class="text-slate-500 text-sm">Full-stack security reconnaissance tool</p>
         </div>
+        
+        <div class="flex w-full md:w-auto gap-3 bg-slate-900 p-2 rounded-2xl border border-slate-800 shadow-xl">
+          <input 
+            v-model="username" 
+            placeholder="Enter GitHub Username" 
+            class="bg-transparent px-4 py-2 focus:outline-none flex-1 md:w-64"
+            @keyup.enter="onSearch"
+          />
+          <BaseButton @click="onSearch" :loading="loading">
+            Analyze
+          </BaseButton>
+        </div>
+      </header>
+
+      <div v-if="error" class="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
+        {{ error }}
       </div>
+
+      <div v-if="user" class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        <aside class="lg:col-span-4 space-y-6">
+          <UserProfile :user="user" />
+
+          <div v-if="selectedRepo" class="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+            <h3 class="text-white font-bold mb-4 flex items-center justify-between">
+              <span>Scan Results</span>
+              <span class="text-[10px] text-slate-500 font-mono">{{ selectedRepo }}</span>
+            </h3>
+            
+            <div v-if="scanning" class="py-8 text-center animate-pulse text-slate-500">
+              Analyzing repository structure...
+            </div>
+
+            <div v-else-if="issues.length > 0" class="space-y-1">
+              <SecurityIssueItem 
+                v-for="issue in issues" 
+                :key="issue.path" 
+                :issue="issue" 
+              />
+            </div>
+            
+            <div v-else class="py-8 text-center text-green-500">
+              <p class="text-2xl mb-2">🛡️</p>
+              <p class="text-sm font-bold">No leaks detected in top files.</p>
+            </div>
+          </div>
+        </aside>
+
+        <main class="lg:col-span-8 space-y-4">
+          <h2 class="text-xl font-bold text-white px-2">Active Repositories</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <RepoCard 
+              v-for="repo in repos" 
+              :key="repo.fullName" 
+              :repo="repo" 
+              :is-scanning="scanning && selectedRepo === repo.name"
+              @scan="onScan" 
+            />
+          </div>
+        </main>
+
+      </div>
+
+      <div v-else-if="!loading" class="text-center py-24 opacity-30">
+        <p class="text-6xl mb-4">🔍</p>
+        <p class="text-xl font-medium">Search for a developer to begin the audit</p>
+      </div>
+
     </div>
   </div>
 </template>
 
-<style scoped>
-.app {
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 20px;
-  font-family: Arial, sans-serif;
-}
+<style>
+/* FIX: In Tailwind v4, styles using @apply MUST reference 
+  the main CSS file so the compiler knows what 'bg-slate-950' is.
+*/
+@reference "./assets/main.css";
 
-.search {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-input {
-  flex: 1;
-  padding: 10px;
-  font-size: 16px;
-}
-
-button {
-  padding: 10px 20px;
-  font-size: 16px;
-  cursor: pointer;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.loading {
-  text-align: center;
-  font-size: 18px;
-}
-
-.error {
-  color: red;
-  text-align: center;
-}
-
-.profile {
-  text-align: center;
-}
-
-.avatar {
-  width: 150px;
-  height: 150px;
-  border-radius: 50%;
-  margin-bottom: 20px;
-}
-
-h2 {
-  margin-bottom: 10px;
+body {
+  @apply bg-slate-950;
+  margin: 0;
 }
 </style>
