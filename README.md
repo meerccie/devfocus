@@ -2,95 +2,57 @@
 ```
 devfocus
 ├─ backend
-│  ├─ .prettierrc
-│  ├─ dist
-│  │  ├─ app.module.d.ts
-│  │  ├─ app.module.js
-│  │  ├─ app.module.js.map
-│  │  ├─ main.d.ts
-│  │  ├─ main.js
-│  │  ├─ main.js.map
-│  │  ├─ modules
-│  │  │  └─ github
-│  │  │     ├─ application
-│  │  │     │  └─ ports
-│  │  │     │     ├─ github-repository.port.d.ts
-│  │  │     │     ├─ github-repository.port.js
-│  │  │     │     └─ github-repository.port.js.map
-│  │  │     ├─ domain
-│  │  │     │  └─ models
-│  │  │     │     ├─ github-user.entity.d.ts
-│  │  │     │     ├─ github-user.entity.js
-│  │  │     │     └─ github-user.entity.js.map
-│  │  │     ├─ github.module.d.ts
-│  │  │     ├─ github.module.js
-│  │  │     ├─ github.module.js.map
-│  │  │     └─ infrastructure
-│  │  │        ├─ adapters
-│  │  │        │  ├─ github-octokit.adapter.d.ts
-│  │  │        │  ├─ github-octokit.adapter.js
-│  │  │        │  └─ github-octokit.adapter.js.map
-│  │  │        ├─ controllers
-│  │  │        │  ├─ github.controller.d.ts
-│  │  │        │  ├─ github.controller.js
-│  │  │        │  └─ github.controller.js.map
-│  │  │        ├─ mappers
-│  │  │        │  ├─ github-user.mapper.d.ts
-│  │  │        │  ├─ github-user.mapper.js
-│  │  │        │  └─ github-user.mapper.js.map
-│  │  │        ├─ services
-│  │  │        │  ├─ github-logger.service.d.ts
-│  │  │        │  ├─ github-logger.service.js
-│  │  │        │  └─ github-logger.service.js.map
-│  │  │        └─ types
-│  │  │           ├─ github-graphql-user.interface.d.ts
-│  │  │           ├─ github-graphql-user.interface.js
-│  │  │           └─ github-graphql-user.interface.js.map
-│  │  └─ tsconfig.build.tsbuildinfo
-│  ├─ eslint.config.mjs
-│  ├─ folder-structure.txt
-│  ├─ nest-cli.json
-│  ├─ package-lock.json
-│  ├─ package.json
-│  ├─ README.md
-│  ├─ src
-│  │  ├─ app.module.ts
-│  │  ├─ main.ts
-│  │  └─ modules
-│  │     └─ github
-│  │        ├─ application
-│  │        │  └─ ports
-│  │        │     └─ github-repository.port.ts
-│  │        ├─ domain
-│  │        │  └─ models
-│  │        │     └─ github-user.entity.ts
-│  │        ├─ github.module.ts
-│  │        └─ infrastructure
-│  │           ├─ adapters
-│  │           │  └─ github-octokit.adapter.ts
-│  │           ├─ controllers
-│  │           │  └─ github.controller.ts
-│  │           ├─ mappers
-│  │           │  └─ github-user.mapper.ts
-│  │           ├─ services
-│  │           │  └─ github-logger.service.ts
-│  │           └─ types
-│  │              └─ github-graphql-user.interface.ts
-│  ├─ test
-│  │  ├─ app.e2e-spec.ts
-│  │  └─ jest-e2e.json
-│  ├─ tsconfig.build.json
-│  └─ tsconfig.json
+│  src
+ ┣ modules
+ ┃ ┗ github
+ ┃ ┃ ┣ application
+ ┃ ┃ ┃ ┗ ports
+ ┃ ┃ ┃ ┃ ┗ github-repository.port.ts
+ ┃ ┃ ┣ domain
+ ┃ ┃ ┃ ┗ models
+ ┃ ┃ ┃ ┃ ┣ github-repo.entity.ts
+ ┃ ┃ ┃ ┃ ┣ github-user.entity.ts
+ ┃ ┃ ┃ ┃ ┗ security-issue.entity.ts
+ ┃ ┃ ┣ infrastructure
+ ┃ ┃ ┃ ┣ adapters
+ ┃ ┃ ┃ ┃ ┗ github-octokit.adapter.ts
+ ┃ ┃ ┃ ┣ controllers
+ ┃ ┃ ┃ ┃ ┗ github.controller.ts
+ ┃ ┃ ┃ ┣ mappers
+ ┃ ┃ ┃ ┃ ┗ github-user.mapper.ts
+ ┃ ┃ ┃ ┣ services
+ ┃ ┃ ┃ ┃ ┣ cache.service.ts
+ ┃ ┃ ┃ ┃ ┣ github-logger.service.ts
+ ┃ ┃ ┃ ┃ ┣ security-scanner.service.ts
+ ┃ ┃ ┃ ┃ ┗ severity-scorer.service.ts
+ ┃ ┃ ┃ ┗ types
+ ┃ ┃ ┃ ┃ ┗ github-graphql-user.interface.ts
+ ┃ ┃ ┗ github.module.ts
+ ┣ app.module.ts
+ ┗ main.ts
 └─ frontend
 src/
-├── assets/             # Global styles and static files
-├── components/         # Atomic Vue components
-│   ├── base/           # Reusable UI (Buttons, Inputs)
-│   └── github/         # Feature-specific (RepoCards, Profile)
-├── services/           # API Logic (Axios/Fetch wrappers)
-├── types/              # TypeScript Interfaces & Entities
-├── App.vue             # Main Orchestrator
-└── main.ts             # Entry point
+ ┣ assets
+ ┃ ┣ hero.png
+ ┃ ┣ main.css
+ ┃ ┣ vite.svg
+ ┃ ┗ vue.svg
+ ┣ components
+ ┃ ┣ base
+ ┃ ┃ ┣ BaseButton.vue
+ ┃ ┃ ┗ BaseInput.vue
+ ┃ ┗ github
+ ┃ ┃ ┣ RepoCard.vue
+ ┃ ┃ ┣ SecurityIssueItem.vue
+ ┃ ┃ ┗ UserProfile.vue
+ ┣ services
+ ┃ ┗ github.service.ts
+ ┣ types
+ ┃ ┣ repository.ts
+ ┃ ┣ security.ts
+ ┃ ┗ user.ts
+ ┣ App.vue
+ ┗ main.ts
 
 ```
 # DevFocus Monorepo
