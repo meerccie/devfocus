@@ -60,7 +60,7 @@ src/
 A full-stack application built with a focus on clean architecture and modern web standards.
 
 ## 🚀 Tech Stack
-- **Backend:** NestJS, TypeScript, PostgreSQL (Hexagonal Architecture)
+- **Backend:** NestJS, TypeScript, Github GraphQL API (Hexagonal Architecture)
 - **Frontend:** Vue 3, Vite, Tailwind CSS
 - **Tools:** Git, NPM
 
