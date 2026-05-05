@@ -25,7 +25,7 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
 
   // ✅ Clean production-safe logging
-  console.log(`🚀 Server running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 }
 
 bootstrap();
